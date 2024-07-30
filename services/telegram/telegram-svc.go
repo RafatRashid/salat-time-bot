@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"fmt"
 	"telegram-bot/utils"
 
 	tgBotApi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -18,10 +19,11 @@ func NewTelegramBot() TelegramBot {
 }
 
 func (b TelegramBot) Ping() {
+	defer utils.RecoverPanic()
+
 	utils.LogInfo("Initiating telegram bot with token: ", b.apiToken)
 
 	bot, err := tgBotApi.NewBotAPI(b.apiToken)
-
 	if err != nil {
 		utils.LogError("TelegramBot.Ping - error: ", err.Error())
 		return
@@ -39,10 +41,14 @@ func (b TelegramBot) Ping() {
 			continue
 		}
 
-		msg := tgBotApi.NewMessage(update.Message.Chat.ID, "Yo boss, ssup yohohoho")
+		location := update.Message.Location
+		messageTime := update.Message.Time()
+		messageContent := fmt.Sprintf("You have sent this message from [lat: %f, lng: %f] @%s", location.Latitude, location.Longitude, messageTime.String())
 
+		msg := tgBotApi.NewMessage(update.Message.Chat.ID, messageContent)
 		if _, err := bot.Send(msg); err != nil {
 			utils.LogError("TelegramBot.Ping - error: ", err.Error())
 		}
+		utils.LogInfo("sent message")
 	}
 }

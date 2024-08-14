@@ -14,6 +14,6 @@ var notifyPrayerCmd = &cobra.Command{
 }
 
 func runPrayerNotifier(cmd *cobra.Command, args []string) {
-	bot := telegram.NewTelegramBot()
-	bot.Ping()
+	telegram.NewTelegramBot().Ping()
+
 }

@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"os"
+	"telegram-bot/infra/cache"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -20,11 +21,13 @@ var (
 func Execute(args []string) error {
 	loadEnvironment()
 
+	cache.Connect()
+
 	RootCmd.AddCommand(consoleCmd)
-	RootCmd.AddCommand(notifyPrayerCmd)
+	RootCmd.AddCommand(notifyCmd)
 
 	if len(args) == 0 {
-		RootCmd.SetArgs([]string{notifyPrayerCmd.Name()})
+		RootCmd.SetArgs([]string{notifyCmd.Name()})
 	}
 
 	return RootCmd.Execute()

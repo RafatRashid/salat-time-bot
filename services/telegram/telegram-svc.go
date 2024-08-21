@@ -2,7 +2,10 @@ package telegram
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
 	"telegram-bot/dto"
+	"telegram-bot/infra/cache"
 	"telegram-bot/services/api"
 	"telegram-bot/utils"
 	"time"
@@ -11,50 +14,106 @@ import (
 	"github.com/spf13/viper"
 )
 
-type TelegramBot struct {
-	apiToken string
+type Bot struct {
+	bot *tgBotApi.BotAPI
 }
 
-func NewTelegramBot() TelegramBot {
-	return TelegramBot{
-		apiToken: viper.GetString("TELEGRAM_BOT_TOKEN"),
-	}
-}
+func NewTelegramBot() Bot {
+	apiToken := viper.GetString("TELEGRAM_BOT_TOKEN")
 
-func (b TelegramBot) Ping() {
-	defer utils.RecoverPanic()
+	utils.LogInfo("Initiating telegram bot with token: ", apiToken)
 
-	utils.LogInfo("Initiating telegram bot with token: ", b.apiToken)
-
-	bot, err := tgBotApi.NewBotAPI(b.apiToken)
+	bot, err := tgBotApi.NewBotAPI(apiToken)
 	if err != nil {
 		utils.LogError("TelegramBot.Ping - error: ", err.Error())
-		return
+		panic(fmt.Sprintf("could not initialize bot - %s", err.Error()))
 	}
 
 	bot.Debug = true
 
+	return Bot{
+		bot,
+	}
+}
+
+func (b Bot) Run() {
+	go b.SubscribeForNotification()
+	b.Ping()
+
+	gracefullyShutdown()
+}
+
+func gracefullyShutdown() {
+	terminator := make(chan os.Signal, 1)
+	signal.Notify(terminator, os.Kill)
+	<-terminator
+	utils.LogInfo("shutting down bot")
+}
+
+func (b Bot) SubscribeForNotification() {
+	defer utils.RecoverPanic()
+
 	updateConfig := tgBotApi.NewUpdate(0)
 	updateConfig.Timeout = 30
+	updateChannel := b.bot.GetUpdatesChan(updateConfig)
 
-	updateChannel := bot.GetUpdatesChan(updateConfig)
-
-	salatTimesForToday := api.GetDailyPrayerTimes(utils.DhakaLat, utils.DhakaLng)
+	utils.LogInfo("listening for subscriptions...")
 
 	for update := range updateChannel {
+		utils.LogInfo("GOT UPDATE ----> %v", utils.ToJson(update))
+
 		if update.Message == nil {
 			continue
 		}
 
-		messageContent := createMessage(update.Message.Time(), salatTimesForToday)
+		command := update.Message.Command()
+		switch command {
+		case "start":
+			subscribeChat(update.Message.Chat.ID)
 
-		msg := tgBotApi.NewMessage(update.Message.Chat.ID, messageContent)
-		if _, err := bot.Send(msg); err != nil {
-			utils.LogError("TelegramBot.Ping - error: ", err.Error())
+		case "stop":
+			unsubscribeChat(update.Message.Chat.ID)
 		}
-
-		utils.LogInfo("sent message")
 	}
+
+	utils.LogInfo("shutting down subscription listener")
+}
+
+func subscribeChat(chatId int64) {
+	chatIdString := fmt.Sprintf("%d", chatId)
+	if err := cache.SetString(chatIdString, "1", -1); err != nil {
+		utils.LogError("Bot.subscribeChat - error [", err.Error(), "] on subscribing chat id: ", chatIdString)
+	}
+}
+
+func unsubscribeChat(chatId int64) {
+	chatIdString := fmt.Sprintf("%d", chatId)
+
+	if _, err := cache.GetString(chatIdString); err != nil {
+		utils.LogInfo("Bot.unsubscribeChat - chat id [", chatIdString, "] is not in database")
+		return
+	}
+
+	if err := cache.SetString(chatIdString, "0", -1); err != nil {
+		utils.LogError("Bot.unsubscribeChat - error [", err.Error(), "] on unsubscribing chat id: ", chatIdString)
+	}
+}
+
+func (b Bot) Ping() {
+	defer utils.RecoverPanic()
+
+	salatTimesForToday := api.GetDailyPrayerTimes(utils.DhakaLat, utils.DhakaLng)
+
+	tick := time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-tick.C:
+				utils.LogInfo("salat times: [", time.Now().String())
+				utils.LogInfo(salatTimesForToday)
+			}
+		}
+	}()
 }
 
 func createMessage(messageTime time.Time, salatTimesForToday dto.SalatTimeResponse) string {

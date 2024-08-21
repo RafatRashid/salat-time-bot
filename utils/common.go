@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/spf13/viper"
 	"log/slog"
 	"strings"
 )
@@ -15,6 +16,15 @@ func LogInfo(args ...any) {
 func LogError(args ...any) {
 	message := coalesceArguments(args, make([]string, 0))
 	slog.Error(strings.Join(message, " "))
+}
+
+func LogDebug(args ...any) {
+	if isDebug := viper.GetBool("DEBUG"); !isDebug {
+		return
+	}
+
+	message := coalesceArguments(args, make([]string, 0))
+	slog.Debug(strings.Join(message, " "))
 }
 
 func coalesceArguments(args []any, message []string) []string {

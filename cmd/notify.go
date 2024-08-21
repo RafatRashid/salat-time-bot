@@ -6,14 +6,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var notifyPrayerCmd = &cobra.Command{
-	Use:   "notify-prayer",
+var notifyCmd = &cobra.Command{
+	Use:   "notify",
 	Short: "Notify telegram on each prayer times",
 	Long:  "============",
 	Run:   runPrayerNotifier,
 }
 
 func runPrayerNotifier(cmd *cobra.Command, args []string) {
-	telegram.NewTelegramBot().Ping()
+	telegram.NewTelegramBot().Run()
 
 }

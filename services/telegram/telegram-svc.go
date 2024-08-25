@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"telegram-bot/dto"
 	"telegram-bot/infra/cache"
 	"telegram-bot/services/api"
@@ -80,23 +82,22 @@ func (b Bot) SubscribeForNotification() {
 }
 
 func subscribeChat(chatId int64) {
-	chatIdString := fmt.Sprintf("%d", chatId)
-	if err := cache.SetString(chatIdString, "1", -1); err != nil {
-		utils.LogError("Bot.subscribeChat - error [", err.Error(), "] on subscribing chat id: ", chatIdString)
+	if err := cache.SetString(getSubscriptionCacheKey(strconv.FormatInt(chatId, 10)), "1", -1); err != nil {
+		utils.LogError("Bot.subscribeChat - error [", err.Error(), "] on subscribing chat id: ", chatId)
 	}
 }
 
 func unsubscribeChat(chatId int64) {
 	chatIdString := fmt.Sprintf("%d", chatId)
 
-	if _, err := cache.GetString(chatIdString); err != nil {
+	if err := cache.RemoveString(getSubscriptionCacheKey(strconv.FormatInt(chatId, 10))); err != nil {
 		utils.LogInfo("Bot.unsubscribeChat - chat id [", chatIdString, "] is not in database")
 		return
 	}
+}
 
-	if err := cache.SetString(chatIdString, "0", -1); err != nil {
-		utils.LogError("Bot.unsubscribeChat - error [", err.Error(), "] on unsubscribing chat id: ", chatIdString)
-	}
+func getSubscriptionCacheKey(chatId string) string {
+	return fmt.Sprintf("%s:%s", "chat-ids", chatId)
 }
 
 func (b Bot) Ping() {
@@ -109,17 +110,36 @@ func (b Bot) Ping() {
 		for {
 			select {
 			case <-tick.C:
-				utils.LogInfo("salat times: [", time.Now().String())
-				utils.LogInfo(salatTimesForToday)
+				b.sendSalatTimes(salatTimesForToday)
 			}
 		}
 	}()
 }
 
-func createMessage(messageTime time.Time, salatTimesForToday dto.SalatTimeResponse) string {
-	messageContent := fmt.Sprintf("Salat times for %s\n\n", messageTime.Format("2006-01-02"))
+func (b Bot) sendSalatTimes(salatTimesForToday dto.SalatTimeResponse) {
+	key := getSubscriptionCacheKey("*")
+	chatIds, err := cache.GetFolderElements(key)
+	if err != nil {
+		utils.LogInfo("no subscribers")
+	}
 
-	messageContent += fmt.Sprintf("Fajr - %v\n", salatTimesForToday.Data.Timings.Fajr)
+	msg := createMessage(salatTimesForToday)
+	for _, idString := range chatIds {
+		var id int64
+		if splitted := strings.Split(idString, ":"); len(splitted) == 2 {
+			id, _ = strconv.ParseInt(splitted[1], 10, 64)
+		}
+
+		if _, err := b.bot.Send(tgBotApi.NewMessage(id, msg)); err != nil {
+			utils.LogError("Bot.sendSalatTimes -  error: ", err.Error())
+		}
+	}
+
+	utils.LogInfo("Bot.sendSalatTimes - sent times to ", len(chatIds), " users")
+}
+
+func createMessage(salatTimesForToday dto.SalatTimeResponse) string {
+	messageContent := fmt.Sprintf("Fajr - %v\n", salatTimesForToday.Data.Timings.Fajr)
 	messageContent += fmt.Sprintf("Sunrise - %v\n", salatTimesForToday.Data.Timings.Sunrise)
 	messageContent += fmt.Sprintf("Dhuhr - %v\n", salatTimesForToday.Data.Timings.Dhuhr)
 	messageContent += fmt.Sprintf("Asr - %v\n", salatTimesForToday.Data.Timings.Asr)
